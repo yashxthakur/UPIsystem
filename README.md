@@ -198,4 +198,3 @@ You can extend this system with:
 ## Support
 
 For Firebase documentation, visit: https://firebase.google.com/docs/auth/web/start
-
