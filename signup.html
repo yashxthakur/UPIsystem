@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Firebase Auth</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <h1>Create Account</h1>
+                <p>Sign up to get started</p>
+            </div>
+            
+            <form id="signupForm" class="auth-form">
+                <div class="form-group">
+                    <label for="signupName">Full Name</label>
+                    <input type="text" id="signupName" required placeholder="Enter your full name">
+                </div>
+                
+                <div class="form-group">
+                    <label for="signupEmail">Email Address</label>
+                    <input type="email" id="signupEmail" required placeholder="Enter your email">
+                </div>
+                
+                <div class="form-group">
+                    <label for="signupPassword">Password</label>
+                    <input type="password" id="signupPassword" required placeholder="Create a password" minlength="6">
+                    <small class="form-hint">Password must be at least 6 characters</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="confirmPassword">Confirm Password</label>
+                    <input type="password" id="confirmPassword" required placeholder="Confirm your password">
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="agreeTerms" required>
+                        <span>I agree to the <a href="#">Terms and Conditions</a></span>
+                    </label>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Create Account</button>
+                
+                <div class="auth-footer">
+                    <p>Already have an account? <a href="index.html">Sign in</a></p>
+                </div>
+            </form>
+            
+            <div id="errorMessage" class="error-message"></div>
+            <div id="successMessage" class="success-message"></div>
+        </div>
+    </div>
+    
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { auth } from './config.js';
+        import { createUserWithEmailAndPassword, updateProfile } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js';
+        
+        const signupForm = document.getElementById('signupForm');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        
+        signupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorMessage.textContent = '';
+            successMessage.textContent = '';
+            
+            const name = document.getElementById('signupName').value;
+            const email = document.getElementById('signupEmail').value;
+            const password = document.getElementById('signupPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            
+            // Validate passwords match
+            if (password !== confirmPassword) {
+                errorMessage.textContent = 'Passwords do not match.';
+                return;
+            }
+            
+            // Validate password length
+            if (password.length < 6) {
+                errorMessage.textContent = 'Password must be at least 6 characters long.';
+                return;
+            }
+            
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                
+                // Update user profile with name
+                await updateProfile(userCredential.user, {
+                    displayName: name
+                });
+                
+                successMessage.textContent = 'Account created successfully! Redirecting...';
+                setTimeout(() => {
+                    window.location.href = 'dashboard.html';
+                }, 1500);
+            } catch (error) {
+                console.error('Signup error:', error);
+                let errorMsg = 'An error occurred. Please try again.';
+                switch(error.code) {
+                    case 'auth/email-already-in-use':
+                        errorMsg = 'This email is already registered. Please sign in instead.';
+                        break;
+                    case 'auth/invalid-email':
+                        errorMsg = 'Invalid email address.';
+                        break;
+                    case 'auth/operation-not-allowed':
+                        errorMsg = 'Email/password accounts are not enabled. Please enable it in Firebase Console.';
+                        break;
+                    case 'auth/weak-password':
+                        errorMsg = 'Password is too weak. Please use a stronger password.';
+                        break;
+                    case 'auth/network-request-failed':
+                        errorMsg = 'Network error. Please check your internet connection.';
+                        break;
+                    default:
+                        errorMsg = `Error: ${error.message || error.code || 'Unknown error'}`;
+                }
+                errorMessage.textContent = errorMsg;
+            }
+        });
+    </script>
+</body>
+</html>
+

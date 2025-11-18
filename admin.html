@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - UPI System</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <div class="user-info">
+                <h1>Admin Dashboard</h1>
+                <p>Manage deposits and withdrawals</p>
+            </div>
+            <button class="btn-logout" id="logoutBtn">Sign Out</button>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="deposits">Deposit Requests</button>
+            <button class="tab-btn" data-tab="withdrawals">Withdrawal Requests</button>
+            <button class="tab-btn" data-tab="settings">Settings</button>
+        </div>
+
+        <!-- Deposit Requests Tab -->
+        <div class="tab-content active" id="deposits-tab">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Pending Deposit Requests</h2>
+                    <button class="btn-refresh" id="refreshDeposits">🔄 Refresh</button>
+                </div>
+                <div id="depositsList" class="requests-list">
+                    <p class="loading-text">Loading deposit requests...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Withdrawal Requests Tab -->
+        <div class="tab-content" id="withdrawals-tab">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Pending Withdrawal Requests</h2>
+                    <button class="btn-refresh" id="refreshWithdrawals">🔄 Refresh</button>
+                </div>
+                <div id="withdrawalsList" class="requests-list">
+                    <p class="loading-text">Loading withdrawal requests...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-content" id="settings-tab">
+            <div class="card">
+                <h2>Admin Settings</h2>
+                <form id="settingsForm" class="transaction-form">
+                    <div class="form-group">
+                        <label for="adminUpiId">Admin UPI ID</label>
+                        <input type="text" id="adminUpiId" required placeholder="yourname@paytm / yourname@phonepe / yourname@ybl">
+                        <small class="form-hint">Enter your UPI ID for receiving payments</small>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save UPI ID</button>
+                </form>
+                <div id="settingsMessage" class="message"></div>
+                <div id="currentUpiDisplay" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #2a2a2a;">
+                    <p style="color: #999; margin-bottom: 10px;">Current UPI ID:</p>
+                    <p id="currentUpiId" style="color: #3b82f6; font-size: 18px; font-weight: 600;">Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approval Modal -->
+    <div id="approvalModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2 id="modalTitle">Approve Request</h2>
+            <div id="modalBody"></div>
+            <div class="modal-actions">
+                <button class="btn btn-success" id="approveBtn">Approve</button>
+                <button class="btn btn-danger" id="rejectBtn">Reject</button>
+                <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rejection Modal -->
+    <div id="rejectionModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2>Reject Request</h2>
+            <p>Please provide a reason for rejection:</p>
+            <div class="form-group">
+                <textarea id="rejectionReason" rows="4" placeholder="Enter rejection reason..." required></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-danger" id="confirmRejectBtn">Confirm Rejection</button>
+                <button class="btn btn-secondary" id="cancelRejectBtn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { auth, db } from './config.js';
+        import { onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js';
+        import { 
+            collection, 
+            getDocs, 
+            doc, 
+            updateDoc, 
+            setDoc,
+            getDoc,
+            query, 
+            where, 
+            onSnapshot 
+        } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
+
+        const logoutBtn = document.getElementById('logoutBtn');
+        const depositsList = document.getElementById('depositsList');
+        const withdrawalsList = document.getElementById('withdrawalsList');
+        const approvalModal = document.getElementById('approvalModal');
+        const rejectionModal = document.getElementById('rejectionModal');
+        const refreshDeposits = document.getElementById('refreshDeposits');
+        const refreshWithdrawals = document.getElementById('refreshWithdrawals');
+        const settingsForm = document.getElementById('settingsForm');
+        const settingsMessage = document.getElementById('settingsMessage');
+        const currentUpiId = document.getElementById('currentUpiId');
+
+        let currentRequest = null;
+        let currentRequestType = null;
+
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.tab + '-tab').classList.add('active');
+                
+                if (btn.dataset.tab === 'deposits') {
+                    loadDeposits();
+                } else if (btn.dataset.tab === 'withdrawals') {
+                    loadWithdrawals();
+                } else if (btn.dataset.tab === 'settings') {
+                    loadAdminSettings();
+                }
+            });
+        });
+
+        // Modal close handlers
+        document.querySelectorAll('.modal-close').forEach(closeBtn => {
+            closeBtn.addEventListener('click', () => {
+                approvalModal.style.display = 'none';
+                rejectionModal.style.display = 'none';
+            });
+        });
+
+        window.addEventListener('click', (e) => {
+            if (e.target === approvalModal) approvalModal.style.display = 'none';
+            if (e.target === rejectionModal) rejectionModal.style.display = 'none';
+        });
+
+        // Refresh buttons
+        refreshDeposits.addEventListener('click', loadDeposits);
+        refreshWithdrawals.addEventListener('click', loadWithdrawals);
+
+        // Load deposit requests
+        async function loadDeposits() {
+            depositsList.innerHTML = '<p class="loading-text">Loading deposit requests...</p>';
+
+            try {
+                // Query without orderBy to avoid index requirement - we'll sort manually
+                const q = query(
+                    collection(db, 'deposits'),
+                    where('status', '==', 'pending')
+                );
+
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    if (snapshot.empty) {
+                        depositsList.innerHTML = '<p class="empty-text">No pending deposit requests</p>';
+                        return;
+                    }
+
+                    // Sort manually by date (newest first)
+                    let docs = Array.from(snapshot.docs);
+                    docs.sort((a, b) => {
+                        const dateA = a.data().createdAt?.toDate() || new Date(0);
+                        const dateB = b.data().createdAt?.toDate() || new Date(0);
+                        return dateB.getTime() - dateA.getTime(); // Descending
+                    });
+
+                    depositsList.innerHTML = docs.map(doc => {
+                        const data = doc.data();
+                        const date = data.createdAt?.toDate() || new Date();
+                        const userName = (data.userName || 'User').replace(/'/g, "\\'");
+                        const userEmail = (data.userEmail || '').replace(/'/g, "\\'");
+                        return `
+                            <div class="request-item">
+                                <div class="request-header">
+                                    <div>
+                                        <h3>${data.userName || 'User'}</h3>
+                                        <p class="request-email">${data.userEmail || 'No email'}</p>
+                                    </div>
+                                    <span class="request-amount">₹${data.amount || 0}</span>
+                                </div>
+                                <div class="request-body">
+                                    <p><strong>UTR Number:</strong> ${data.utrNumber || 'N/A'}</p>
+                                    <p><strong>Requested:</strong> ${formatDate(date)}</p>
+                                </div>
+                                <div class="request-actions">
+                                    <button class="btn btn-success btn-sm" onclick="handleApprove('${doc.id}', 'deposit', ${data.amount || 0}, '${userName}', '${userEmail}')">Approve</button>
+                                    <button class="btn btn-danger btn-sm" onclick="handleReject('${doc.id}', 'deposit')">Reject</button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }, (error) => {
+                    console.error('Snapshot error:', error);
+                    let errorMsg = 'Error loading deposit requests: ';
+                    errorMsg += error.message || error.code || 'Unknown error';
+                    depositsList.innerHTML = `<p class="error-text">${errorMsg}</p>`;
+                });
+            } catch (error) {
+                console.error('Load deposits error:', error);
+                depositsList.innerHTML = `<p class="error-text">Error: ${error.message || error.code || 'Unknown error'}</p>`;
+            }
+        }
+
+        // Load withdrawal requests
+        async function loadWithdrawals() {
+            withdrawalsList.innerHTML = '<p class="loading-text">Loading withdrawal requests...</p>';
+
+            try {
+                // Query without orderBy to avoid index requirement - we'll sort manually
+                const q = query(
+                    collection(db, 'withdrawals'),
+                    where('status', '==', 'pending')
+                );
+
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    if (snapshot.empty) {
+                        withdrawalsList.innerHTML = '<p class="empty-text">No pending withdrawal requests</p>';
+                        return;
+                    }
+
+                    // Sort manually by date (newest first)
+                    let docs = Array.from(snapshot.docs);
+                    docs.sort((a, b) => {
+                        const dateA = a.data().createdAt?.toDate() || new Date(0);
+                        const dateB = b.data().createdAt?.toDate() || new Date(0);
+                        return dateB.getTime() - dateA.getTime(); // Descending
+                    });
+
+                    withdrawalsList.innerHTML = docs.map(doc => {
+                        const data = doc.data();
+                        const date = data.createdAt?.toDate() || new Date();
+                        const userName = (data.userName || 'User').replace(/'/g, "\\'");
+                        const userEmail = (data.userEmail || '').replace(/'/g, "\\'");
+                        const methodDetails = data.method === 'upi' 
+                            ? `<p><strong>UPI ID:</strong> ${data.upiId || 'N/A'}</p><p><strong>UPI Name:</strong> ${data.upiName || 'N/A'}</p>`
+                            : `<p><strong>Account:</strong> ${data.accountNumber || 'N/A'}</p><p><strong>IFSC:</strong> ${data.ifscCode || 'N/A'}</p><p><strong>Bank:</strong> ${data.bankName || 'N/A'}</p><p><strong>Name:</strong> ${data.accountName || 'N/A'}</p>`;
+                        
+                        return `
+                            <div class="request-item">
+                                <div class="request-header">
+                                    <div>
+                                        <h3>${data.userName || 'User'}</h3>
+                                        <p class="request-email">${data.userEmail || 'No email'}</p>
+                                    </div>
+                                    <span class="request-amount">₹${data.amount || 0}</span>
+                                </div>
+                                <div class="request-body">
+                                    <p><strong>Method:</strong> ${data.method === 'upi' ? 'UPI' : 'Bank Transfer'}</p>
+                                    ${methodDetails}
+                                    <p><strong>Requested:</strong> ${formatDate(date)}</p>
+                                </div>
+                                <div class="request-actions">
+                                    <button class="btn btn-success btn-sm" onclick="handleApprove('${doc.id}', 'withdraw', ${data.amount || 0}, '${userName}', '${userEmail}')">Approve</button>
+                                    <button class="btn btn-danger btn-sm" onclick="handleReject('${doc.id}', 'withdraw')">Reject</button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }, (error) => {
+                    console.error('Snapshot error:', error);
+                    let errorMsg = 'Error loading withdrawal requests: ';
+                    errorMsg += error.message || error.code || 'Unknown error';
+                    withdrawalsList.innerHTML = `<p class="error-text">${errorMsg}</p>`;
+                });
+            } catch (error) {
+                console.error('Load withdrawals error:', error);
+                withdrawalsList.innerHTML = `<p class="error-text">Error: ${error.message || error.code || 'Unknown error'}</p>`;
+            }
+        }
+
+        // Handle approve
+        window.handleApprove = function(requestId, type, amount, userName, userEmail) {
+            currentRequest = requestId;
+            currentRequestType = type;
+            
+            const modalTitle = document.getElementById('modalTitle');
+            const modalBody = document.getElementById('modalBody');
+            
+            modalTitle.textContent = `Approve ${type === 'deposit' ? 'Deposit' : 'Withdrawal'} Request`;
+            modalBody.innerHTML = `
+                <p><strong>User:</strong> ${userName}</p>
+                <p><strong>Email:</strong> ${userEmail}</p>
+                <p><strong>Amount:</strong> ₹${amount}</p>
+                <p>Are you sure you want to approve this request?</p>
+            `;
+            
+            approvalModal.style.display = 'block';
+        };
+
+        document.getElementById('approveBtn').addEventListener('click', async () => {
+            if (!currentRequest || !currentRequestType) return;
+
+            try {
+                const collectionName = currentRequestType === 'deposit' ? 'deposits' : 'withdrawals';
+                const requestRef = doc(db, collectionName, currentRequest);
+                
+                await updateDoc(requestRef, {
+                    status: 'approved',
+                    approvedAt: new Date(),
+                    approvedBy: auth.currentUser?.email || 'admin'
+                });
+
+                approvalModal.style.display = 'none';
+                if (currentRequestType === 'deposit') {
+                    loadDeposits();
+                } else {
+                    loadWithdrawals();
+                }
+                currentRequest = null;
+                currentRequestType = null;
+            } catch (error) {
+                console.error('Approve error:', error);
+                alert('Error approving request. Please try again.');
+            }
+        });
+
+        // Handle reject
+        window.handleReject = function(requestId, type) {
+            currentRequest = requestId;
+            currentRequestType = type;
+            document.getElementById('rejectionReason').value = '';
+            rejectionModal.style.display = 'block';
+        };
+
+        document.getElementById('confirmRejectBtn').addEventListener('click', async () => {
+            const reason = document.getElementById('rejectionReason').value.trim();
+            
+            if (!reason) {
+                alert('Please provide a rejection reason');
+                return;
+            }
+
+            if (!currentRequest || !currentRequestType) return;
+
+            try {
+                const collectionName = currentRequestType === 'deposit' ? 'deposits' : 'withdrawals';
+                const requestRef = doc(db, collectionName, currentRequest);
+                
+                await updateDoc(requestRef, {
+                    status: 'rejected',
+                    rejectionReason: reason,
+                    rejectedAt: new Date(),
+                    rejectedBy: auth.currentUser?.email || 'admin'
+                });
+
+                rejectionModal.style.display = 'none';
+                if (currentRequestType === 'deposit') {
+                    loadDeposits();
+                } else {
+                    loadWithdrawals();
+                }
+                currentRequest = null;
+                currentRequestType = null;
+            } catch (error) {
+                console.error('Reject error:', error);
+                alert('Error rejecting request. Please try again.');
+            }
+        });
+
+        document.getElementById('cancelBtn').addEventListener('click', () => {
+            approvalModal.style.display = 'none';
+            currentRequest = null;
+            currentRequestType = null;
+        });
+
+        document.getElementById('cancelRejectBtn').addEventListener('click', () => {
+            rejectionModal.style.display = 'none';
+            currentRequest = null;
+            currentRequestType = null;
+        });
+
+        function formatDate(date) {
+            return new Intl.DateTimeFormat('en-IN', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }).format(date);
+        }
+
+        // Auth state - redirect if not admin
+        onAuthStateChanged(auth, (user) => {
+            if (!user) {
+                window.location.href = 'index.html';
+            }
+            // Note: In production, you should check if user is admin
+            // For now, any logged-in user can access admin panel
+        });
+
+        // Logout
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await signOut(auth);
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        });
+
+        // Load admin settings
+        async function loadAdminSettings() {
+            try {
+                const settingsRef = doc(db, 'adminSettings', 'upiId');
+                const settingsSnap = await getDoc(settingsRef);
+                
+                if (settingsSnap.exists()) {
+                    const data = settingsSnap.data();
+                    currentUpiId.textContent = data.upiId || 'Not set';
+                    document.getElementById('adminUpiId').value = data.upiId || '';
+                } else {
+                    currentUpiId.textContent = 'Not set';
+                }
+            } catch (error) {
+                console.error('Load settings error:', error);
+                currentUpiId.textContent = 'Error loading';
+            }
+        }
+
+        // Save admin UPI ID
+        settingsForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            settingsMessage.textContent = '';
+            settingsMessage.className = 'message';
+
+            const upiId = document.getElementById('adminUpiId').value.trim();
+
+            if (!upiId) {
+                showMessage(settingsMessage, 'Please enter a UPI ID', 'error');
+                return;
+            }
+
+            // Basic UPI ID validation
+            if (!upiId.includes('@')) {
+                showMessage(settingsMessage, 'Invalid UPI ID format. UPI ID should contain @', 'error');
+                return;
+            }
+
+            try {
+                const settingsRef = doc(db, 'adminSettings', 'upiId');
+                await setDoc(settingsRef, {
+                    upiId: upiId,
+                    updatedAt: new Date(),
+                    updatedBy: auth.currentUser?.email || 'admin'
+                });
+
+                showMessage(settingsMessage, 'UPI ID saved successfully!', 'success');
+                currentUpiId.textContent = upiId;
+            } catch (error) {
+                console.error('Save settings error:', error);
+                let errorMsg = 'Error saving UPI ID. ';
+                
+                // Check for specific error types
+                if (error.code === 'permission-denied') {
+                    errorMsg += 'Permission denied. Please check Firestore security rules.';
+                } else if (error.code === 'unavailable') {
+                    errorMsg += 'Service unavailable. Please check your internet connection.';
+                } else {
+                    errorMsg += `Error: ${error.message || error.code || 'Unknown error'}`;
+                }
+                
+                showMessage(settingsMessage, errorMsg, 'error');
+            }
+        });
+
+        function showMessage(element, message, type) {
+            element.textContent = message;
+            element.className = `message ${type === 'error' ? 'error-message' : 'success-message'}`;
+            setTimeout(() => {
+                element.textContent = '';
+                element.className = 'message';
+            }, 5000);
+        }
+
+        // Debug: Test if we can read from Firestore
+        async function testFirestoreConnection() {
+            try {
+                const testQuery = query(collection(db, 'deposits'));
+                const testSnapshot = await getDocs(testQuery);
+                console.log('Firestore connection test:', {
+                    totalDocs: testSnapshot.size,
+                    pendingDocs: testSnapshot.docs.filter(d => d.data().status === 'pending').length
+                });
+            } catch (error) {
+                console.error('Firestore connection test failed:', error);
+            }
+        }
+
+        // Load initial data
+        loadDeposits();
+        loadWithdrawals();
+        loadAdminSettings();
+        testFirestoreConnection();
+    </script>
+</body>
+</html>
+

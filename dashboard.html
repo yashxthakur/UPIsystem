@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Firebase Auth</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .dashboard-card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            text-align: center;
+        }
+        
+        .user-info {
+            margin-bottom: 30px;
+        }
+        
+        .user-info h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .user-info p {
+            color: #666;
+            font-size: 16px;
+        }
+        
+        .user-email {
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .btn-logout {
+            background: #ff4444;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-logout:hover {
+            background: #cc0000;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 68, 68, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="dashboard-card">
+            <div class="user-info">
+                <h1>Welcome! 🎉</h1>
+                <p>You are successfully logged in</p>
+                <p class="user-email" id="userEmail">Loading...</p>
+            </div>
+            <button class="btn-logout" id="logoutBtn">Sign Out</button>
+        </div>
+    </div>
+    
+    <script type="module">
+        import { auth } from './config.js';
+        import { onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js';
+        
+        const userEmail = document.getElementById('userEmail');
+        const logoutBtn = document.getElementById('logoutBtn');
+        
+        // Check authentication state
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // Redirect to user dashboard
+                window.location.href = 'user.html';
+            } else {
+                // User is not logged in, redirect to login
+                window.location.href = 'index.html';
+            }
+        });
+        
+        // Logout functionality
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await signOut(auth);
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Error signing out:', error);
+                alert('Error signing out. Please try again.');
+            }
+        });
+    </script>
+</body>
+</html>
+
